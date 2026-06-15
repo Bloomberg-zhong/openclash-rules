@@ -40,7 +40,7 @@ ruleset= Discord,[]GEOSITE,discord
 在 `custom/groups.ini` 里添加：
 
 ```ini
-custom_proxy_group= Discord`select`[] HK`[] TW`[] JP`[] SG`[] US`[] 冷门节点`[] Default
+custom_proxy_group= Discord`select`[]🇭🇰 HK`[]🇹🇼 TW`[]🇯🇵 JP`[]🇸🇬 SG`[]🇺🇸 US`[]🧊 冷门节点`[]🌐 Default
 ```
 
 提交到 GitHub 后，手动运行一次 Actions，或者等它每天自动同步。
@@ -70,7 +70,24 @@ ruleset= MySite,clash-domain:https://raw.githubusercontent.com/Bloomberg-zhong/o
 在 `custom/groups.ini` 添加：
 
 ```ini
-custom_proxy_group= MySite`select`[] HK`[] TW`[] JP`[] SG`[] US`[] 冷门节点`[]DIRECT`[] Default
+custom_proxy_group= MySite`select`[]🇭🇰 HK`[]🇹🇼 TW`[]🇯🇵 JP`[]🇸🇬 SG`[]🇺🇸 US`[]🧊 冷门节点`[]DIRECT`[]🌐 Default
+```
+
+## 当前已内置的自定义规则
+
+`访问新加坡`：
+
+```text
+massive.com
+富途 / moomoo 常用域名
+盈透 / IBKR 常用域名
+```
+
+`DIRECT`：
+
+```text
+taifanbo.com
+taifanbo.top
 ```
 
 ## 推荐原则
