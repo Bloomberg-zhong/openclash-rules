@@ -1,0 +1,33 @@
+payload:
+  # Claude / Anthropic 核心域名
+  - 'DOMAIN-SUFFIX,anthropic.com'
+  - 'DOMAIN-SUFFIX,claude.ai'
+  - 'DOMAIN-SUFFIX,claude.com'
+  - 'DOMAIN-SUFFIX,clau.de'
+  - 'DOMAIN-SUFFIX,claudemcpclient.com'
+  - 'DOMAIN-SUFFIX,claudemcpcontent.com'
+  - 'DOMAIN-SUFFIX,claudeusercontent.com'
+
+  # CDN、认证与内容服务（保留文章列出的精确项，便于审计）
+  - 'DOMAIN-SUFFIX,cdn.anthropic.com'
+  - 'DOMAIN-SUFFIX,mcp.anthropic.com'
+  - 'DOMAIN-SUFFIX,console.anthropic.com'
+  - 'DOMAIN-SUFFIX,workbench.anthropic.com'
+  - 'DOMAIN-SUFFIX,anthropic.auth0.com'
+  - 'DOMAIN-SUFFIX,anthropic-com.ghost.io'
+  - 'DOMAIN-SUFFIX,anthropic.com.cdn.cloudflare.net'
+  - 'DOMAIN-SUFFIX,servd-anthropic-website.b-cdn.net'
+
+  # 监控、风控与第三方组件
+  - 'DOMAIN-SUFFIX,sentry.io'
+  - 'DOMAIN-SUFFIX,statsigapi.net'
+  - 'DOMAIN-SUFFIX,browser-intake-us5-datadoghq.com'
+  - 'DOMAIN-SUFFIX,intercom.io'
+  - 'DOMAIN-SUFFIX,intercomcdn.com'
+  - 'DOMAIN-SUFFIX,cdn.usefathom.com'
+  - 'DOMAIN-KEYWORD,datadog'
+  - 'DOMAIN-KEYWORD,sentry'
+  - 'DOMAIN-KEYWORD,sift'
+
+  # 按参考清单让已知 NTP 域名使用同一住宅出口。
+  - 'GEOSITE,category-ntp'
