@@ -32,6 +32,22 @@ openclash/*.conf
 openclash/sg-residential-chain.conf
 ```
 
+### 住宅 IP、端口和账号密码放在哪里
+
+真实住宅代理信息只保存在路由器的 OpenClash 本地覆写模块中。Git 仓库里的
+`openclash/sg-residential-chain.conf` 永远保留以下四个占位符，不能填入真实值：
+
+```text
+__RESIDENTIAL_SERVER__
+__RESIDENTIAL_PORT__
+__RESIDENTIAL_USERNAME__
+__RESIDENTIAL_PASSWORD__
+```
+
+住宅 IP、端口或密码发生变化时，直接编辑路由器中已经启用的覆写模块，然后更新配置并重启 OpenClash。同步 Git、重新生成 `metafenliu.ini` 或在 OpenClash 中手动更新订阅配置，不会改写这个本地覆写模块。
+
+只有再次把仓库中的模板导入并替换现有覆写模块时，四项真实值才会被占位符覆盖。因此日常更新只更新订阅配置，不要重新覆盖本地模块；如确实需要重建模块，先导出现有模块或记录四项值，再重新填写。
+
 使用步骤：
 
 1. 确认 OpenClash 版本不低于 `v0.47.081`，并使用 Meta/Mihomo 核心。
@@ -51,6 +67,7 @@ openclash/sg-residential-chain.conf
 - 机场节点自身的域名使用独立的 `proxy-server-nameserver` 引导解析，避免 DNS 与代理互相等待而无法启动。
 - 不追加 WAN DNS，也不追加 OpenClash 默认业务 DNS。
 - 关闭 IPv6 和 AAAA 解析，避免住宅出口只有 IPv4 时从 IPv6 旁路。
+- 禁用 QUIC，让 Claude/HTTPS 优先使用更稳定、也更容易保持出口一致的 TCP。
 - 仅 `192.168.198.218/32` 和 `192.168.198.216/32` 的全部 UDP 进入住宅链；不会影响其他局域网设备。
 
 应当在路由器 DHCP 中为这两台设备设置静态租约。如果设备地址改变，需要同时修改覆写模块中的两条 `SRC-IP-CIDR`。浏览器的“安全 DNS/私密 DNS”应关闭，让 DNS 请求统一交给 OpenClash。
@@ -61,7 +78,7 @@ Claude 精确域名、CDN、认证、监控、第三方组件与 NTP 域名规�
 rules/claude.yaml
 ```
 
-其中没有加入检测网站使用的两个 STUN 域名，也没有加入 Anthropic IP/ASN 兜底；WebRTC 由上述两台客户端的 UDP 规则统一覆盖。
+其中不加入检测网站使用的两个 STUN 域名；WebRTC 由上述两台客户端的 UDP 规则统一覆盖。规则末尾同时保留 Anthropic IPv4、IPv6 网段和 ASN 兜底，其中 IPv6 当前会被覆写模块的全局 IPv6 开关阻断，不会形成旁路。
 
 ## 使用方法
 

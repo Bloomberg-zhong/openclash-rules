@@ -73,7 +73,7 @@ class ChainConfigTests(unittest.TestCase):
             generated.index(f"ruleset={CHAIN_POLICY},[]GEOSITE,category-ai-!cn"),
         )
 
-    def test_claude_rules_cover_the_site_domain_list_without_stun_or_ip_fallbacks(self) -> None:
+    def test_claude_rules_cover_the_site_domain_list_and_ip_fallbacks(self) -> None:
         rule_path = ROOT / "rules" / "claude.yaml"
         self.assertTrue(rule_path.exists(), "Claude domain rule provider is missing")
         rules = rule_path.read_text(encoding="utf-8")
@@ -106,8 +106,9 @@ class ChainConfigTests(unittest.TestCase):
 
         self.assertNotIn("stun.l.google.com", rules)
         self.assertNotIn("stun.cloudflare.com", rules)
-        self.assertNotIn("IP-CIDR", rules)
-        self.assertNotIn("IP-ASN", rules)
+        self.assertIn("IP-CIDR,160.79.104.0/21,no-resolve", rules)
+        self.assertIn("IP-CIDR6,2607:6bc0::/32,no-resolve", rules)
+        self.assertIn("IP-ASN,399358,no-resolve", rules)
 
     def test_overwrite_module_adds_udp_chain_without_real_credentials(self) -> None:
         module_path = ROOT / "openclash" / "sg-residential-chain.conf"
@@ -135,6 +136,24 @@ class ChainConfigTests(unittest.TestCase):
         ]:
             self.assertIn(required, module)
 
+        proxy_block = module.split("proxies+:", 1)[1].split("proxy-groups+:", 1)[0]
+        expected_credentials = {
+            "server": "'__RESIDENTIAL_SERVER__'",
+            "port": "'__RESIDENTIAL_PORT__'",
+            "username": "'__RESIDENTIAL_USERNAME__'",
+            "password": "'__RESIDENTIAL_PASSWORD__'",
+        }
+        actual_credentials = {}
+        for raw_line in proxy_block.splitlines():
+            line = raw_line.strip()
+            if ":" not in line:
+                continue
+            key, value = line.split(":", 1)
+            if key in expected_credentials:
+                actual_credentials[key] = value.strip()
+
+        self.assertEqual(actual_credentials, expected_credentials)
+
     def test_overwrite_module_proxies_dns_and_scopes_all_udp_to_selected_clients(self) -> None:
         module = (ROOT / "openclash" / "sg-residential-chain.conf").read_text(
             encoding="utf-8"
@@ -150,6 +169,7 @@ class ChainConfigTests(unittest.TestCase):
             "IPV6_ENABLE": "0",
             "IPV6_DNS": "0",
             "ENABLE_UDP_PROXY": "1",
+            "DISABLE_UDP_QUIC": "1",
         }
         for key, value in expected_general.items():
             self.assertEqual(general.get(key), value, f"unexpected {key}")
