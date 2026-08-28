@@ -11,7 +11,7 @@ from scripts.build import LOWER_MARKER, insert_after_nth_marker  # noqa: E402
 
 CHAIN_POLICY = "住宅链式出口"
 CHAIN_PROXY = "链式代理-新加坡住宅"
-CLIENTS_WITH_CHAINED_UDP = ["192.168.198.218/32", "192.168.198.216/32"]
+WEBRTC_PROTECTED_CLIENTS = ["192.168.198.218/32", "192.168.198.216/32"]
 
 
 def read_general_settings(module: str) -> dict[str, str]:
@@ -102,7 +102,7 @@ class ChainConfigTests(unittest.TestCase):
 
         for keyword in ["datadog", "sentry", "sift"]:
             self.assertIn(f"DOMAIN-KEYWORD,{keyword}", rules)
-        self.assertIn("GEOSITE,category-ntp", rules)
+        self.assertNotIn("GEOSITE,category-ntp", rules)
 
         self.assertNotIn("stun.l.google.com", rules)
         self.assertNotIn("stun.cloudflare.com", rules)
@@ -159,7 +159,7 @@ class ChainConfigTests(unittest.TestCase):
 
         self.assertEqual(actual_credentials, expected_credentials)
 
-    def test_overwrite_module_proxies_dns_and_scopes_all_udp_to_selected_clients(self) -> None:
+    def test_overwrite_module_scopes_ai_dns_and_blocks_common_webrtc_ports(self) -> None:
         module = (ROOT / "openclash" / "sg-residential-chain.conf").read_text(
             encoding="utf-8"
         )
@@ -184,9 +184,12 @@ class ChainConfigTests(unittest.TestCase):
             "enable: true",
             "ipv6: false",
             "enhanced-mode: fake-ip",
-            "respect-rules: true",
+            "respect-rules: false",
             "default-nameserver!:",
             "nameserver!:",
+            "nameserver-policy!:",
+            "'rule-set:claude':",
+            "'geosite:openai':",
             "https://1.1.1.1/dns-query#住宅链式出口",
             "https://dns.google/dns-query#住宅链式出口",
             "proxy-server-nameserver!:",
@@ -194,8 +197,35 @@ class ChainConfigTests(unittest.TestCase):
         ]:
             self.assertIn(required, module)
 
-        for client in CLIENTS_WITH_CHAINED_UDP:
+        default_nameserver_block = module.split("  nameserver!:", 1)[1].split(
+            "  nameserver-policy!:", 1
+        )[0]
+        self.assertIn("https://dns.alidns.com/dns-query", default_nameserver_block)
+        self.assertIn("https://doh.pub/dns-query", default_nameserver_block)
+        self.assertNotIn(CHAIN_POLICY, default_nameserver_block)
+
+        ai_dns_policy_block = module.split("  nameserver-policy!:", 1)[1].split(
+            "  proxy-server-nameserver!:", 1
+        )[0]
+        self.assertIn("'rule-set:claude':", ai_dns_policy_block)
+        self.assertIn("'geosite:openai':", ai_dns_policy_block)
+        self.assertIn(
+            f"https://1.1.1.1/dns-query#{CHAIN_POLICY}", ai_dns_policy_block
+        )
+        self.assertIn(
+            f"https://dns.google/dns-query#{CHAIN_POLICY}", ai_dns_policy_block
+        )
+
+        for client in WEBRTC_PROTECTED_CLIENTS:
             self.assertIn(
+                f"AND,((SRC-IP-CIDR,{client}),(NETWORK,udp),(DST-PORT,3478-3481)),REJECT",
+                module,
+            )
+            self.assertIn(
+                f"AND,((SRC-IP-CIDR,{client}),(NETWORK,udp),(DST-PORT,19302-19309)),REJECT",
+                module,
+            )
+            self.assertNotIn(
                 f"AND,((SRC-IP-CIDR,{client}),(NETWORK,udp)),{CHAIN_POLICY}",
                 module,
             )

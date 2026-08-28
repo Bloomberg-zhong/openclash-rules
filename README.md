@@ -65,22 +65,23 @@ __RESIDENTIAL_PASSWORD__
 
 覆写模板当前固定执行以下策略：
 
-- 普通域名使用 Cloudflare 和 Google DoH，并明确通过 `住宅链式出口` 建立连接。
+- Claude 和 OpenAI 域名使用 Cloudflare 和 Google DoH，并通过 `住宅链式出口` 建立连接。
+- 其他域名使用直连的阿里云和腾讯 DoH，避免普通网页和下载被住宅双跳 DNS 拖慢。
 - 机场节点自身的域名使用独立的 `proxy-server-nameserver` 引导解析，避免 DNS 与代理互相等待而无法启动。
 - 不追加 WAN DNS，也不追加 OpenClash 默认业务 DNS。
 - 关闭 IPv6 和 AAAA 解析，避免住宅出口只有 IPv4 时从 IPv6 旁路。
 - 禁用 QUIC，让 Claude/HTTPS 优先使用更稳定、也更容易保持出口一致的 TCP。
-- 仅 `192.168.198.218/32` 和 `192.168.198.216/32` 的全部 UDP 进入住宅链；不会影响其他局域网设备。
+- 只拒绝 `192.168.198.218/32` 和 `192.168.198.216/32` 的常见 WebRTC/STUN UDP 端口；其他 UDP 恢复正常规则分流，不再全部进入住宅链。
 
 应当在路由器 DHCP 中为这两台设备设置静态租约。如果设备地址改变，需要同时修改覆写模块中的两条 `SRC-IP-CIDR`。浏览器的“安全 DNS/私密 DNS”应关闭，让 DNS 请求统一交给 OpenClash。
 
-Claude 精确域名、CDN、认证、监控、第三方组件与 NTP 域名规则维护在：
+Claude 精确域名、CDN、认证、监控与第三方组件规则维护在：
 
 ```text
 rules/claude.yaml
 ```
 
-其中不加入检测网站使用的两个 STUN 域名；WebRTC 由上述两台客户端的 UDP 规则统一覆盖。规则末尾同时保留 Anthropic IPv4、IPv6 网段和 ASN 兜底，其中 IPv6 当前会被覆写模块的全局 IPv6 开关阻断，不会形成旁路。
+其中不加入检测网站使用的两个 STUN 域名；WebRTC 由上述两台客户端的常见 STUN 端口拒绝规则与 QUIC 禁用共同防护。NTP 保持正常分流，不再使用住宅出口。规则末尾同时保留 Anthropic IPv4、IPv6 网段和 ASN 兜底，其中 IPv6 当前会被覆写模块的全局 IPv6 开关阻断，不会形成旁路。
 
 ## 使用方法
 
