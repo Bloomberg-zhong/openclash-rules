@@ -1,2 +1,5 @@
 __pycache__/
 .DS_Store
+
+# Filled OpenClash modules may contain residential proxy credentials.
+openclash/*.local.conf

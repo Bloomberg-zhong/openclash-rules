@@ -144,7 +144,7 @@ class ChainConfigTests(unittest.TestCase):
         proxy_block = module.split("proxies+:", 1)[1].split("proxy-groups+:", 1)[0]
         expected_credentials = {
             "server": "'__RESIDENTIAL_SERVER__'",
-            "port": "'__RESIDENTIAL_PORT__'",
+            "port": "__RESIDENTIAL_PORT__",
             "username": "'__RESIDENTIAL_USERNAME__'",
             "password": "'__RESIDENTIAL_PASSWORD__'",
         }

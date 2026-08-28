@@ -32,6 +32,12 @@ openclash/*.conf
 openclash/sg-residential-chain.conf
 ```
 
+完整的配置说明、部署步骤、验证方法和故障回退见：
+
+```text
+docs/sg-residential-chain-guide.md
+```
+
 ### 住宅 IP、端口和账号密码放在哪里
 
 真实住宅代理信息只保存在路由器的 OpenClash 本地覆写模块中。Git 仓库里的
