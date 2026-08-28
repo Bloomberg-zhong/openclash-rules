@@ -126,15 +126,20 @@ class ChainConfigTests(unittest.TestCase):
             "proxy-groups*:",
             f"name: '{CHAIN_POLICY}'",
             f"- '{CHAIN_PROXY}'",
-            "Provider_6FF242",
-            "Provider_E34AFB",
-            "Provider_6A7B9B",
+            "include-all-providers: true",
+            "filter: '(?i)(🇸🇬|新加坡|\\bSG\\b|singapore)'",
             "__RESIDENTIAL_SERVER__",
             "__RESIDENTIAL_PORT__",
             "__RESIDENTIAL_USERNAME__",
             "__RESIDENTIAL_PASSWORD__",
         ]:
             self.assertIn(required, module)
+
+        front_group_block = module.split("proxy-groups+:", 1)[1].split(
+            "proxy-groups*:", 1
+        )[0]
+        self.assertNotRegex(front_group_block, r"Provider_[A-Z0-9]+")
+        self.assertNotIn("\n    use:", front_group_block)
 
         proxy_block = module.split("proxies+:", 1)[1].split("proxy-groups+:", 1)[0]
         expected_credentials = {
