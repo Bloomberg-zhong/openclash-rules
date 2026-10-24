@@ -73,7 +73,9 @@ Claude/OpenAI 的故障切换分三层：
 
 两条住宅链都不通时，AI 组仍停在住宅链上，不会落到普通机场节点。
 
-不要把填入真实凭据后的覆写模块提交到这个仓库。未启用覆写模块时，两个 AI 组和 `新加坡住宅优先` 会暂时回退到普通 `🇸🇬 SG`，避免整份配置无法启动。
+不要把填入真实凭据后的覆写模块提交到这个仓库。未启用覆写模块时，两个 AI 组只剩 `REJECT`：Claude/OpenAI 会直接连不上，绝不会改走普通节点或直连。`新加坡住宅优先` 此时回落到普通 `🇸🇬 SG`。
+
+覆写模块还会用 `+rules` 把 Claude/OpenAI 规则插到全部规则最前面，并自带 `claude`、`openai` 两个规则集，第三方直连 / 代理列表以后怎么更新都抢不走这些流量。
 
 ### DNS、IPv6 与 WebRTC UDP
 
@@ -167,6 +169,7 @@ GEOSITE,anthropic
 `🤖 OpenAI 住宅链`（只走住宅链）：
 
 ```text
+rules/openai.yaml：OpenAI / ChatGPT / Sora 核心域名、静态资源与 CDN
 GEOSITE,openai
 ```
 

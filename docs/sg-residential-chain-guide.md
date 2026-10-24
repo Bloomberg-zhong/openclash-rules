@@ -58,7 +58,13 @@ Gemini 等其他海外 AI、普通网页、下载和大多数 UDP 流量仍按�
 
 - 模板生成的 `🤖 Claude 住宅链` 和 `🤖 OpenAI 住宅链` 是 fallback 组，健康检查分别请求 `https://api.anthropic.com` 和 `https://api.openai.com`。检查的是整条住宅链，不只是前置节点。
 - 覆写后，这两个组的成员只剩两条住宅链：第一条不通就切第二条；两条都不通时仍停在住宅链上，不会落到普通节点。
+- 模板里这两个 AI 组的兜底成员只有 `REJECT`。覆写模块没生效时，Claude/OpenAI 直接连不上，不会走普通节点或直连。
 - `新加坡住宅优先` 先走 `🤖 Claude 住宅链`，住宅链整体不通时回落到普通 `🇸🇬 SG`。
+
+### `rule-providers` 与 `+rules`
+
+- 模块自带 `claude`、`openai` 两个规则集，不依赖订阅转换生成的名称。
+- `+rules` 把 Claude/OpenAI 规则插到全部规则最前面，先于 `GEOSITE,cn`、Aethersailor 直连 / 代理列表等任何规则匹配。
 
 ## 三、首次部署
 
@@ -107,7 +113,7 @@ openclash/sg-residential-chain.local.conf
 1. OpenClash 状态为“运行中”，日志中没有 `Parse config error`。
 2. 面板存在 `前置-新加坡`、`前置-亚洲备用`、`🤖 Claude 住宅链`、`🤖 OpenAI 住宅链` 和 `新加坡住宅优先`。
 3. 两个前置组都有节点，并显示延迟。
-4. `🤖 Claude 住宅链`、`🤖 OpenAI 住宅链` 的成员只有 `住宅链-经新加坡` 和 `住宅链-经亚洲备用`，没有 `🇸🇬 SG`。如果仍看到 `🇸🇬 SG`，说明覆写模块没有生效。
+4. `🤖 Claude 住宅链`、`🤖 OpenAI 住宅链` 的成员只有 `住宅链-经新加坡` 和 `住宅链-经亚洲备用`，没有 `REJECT`。如果看到 `REJECT`，说明覆写模块没有生效，此时 Claude/OpenAI 会连不上，这是有意的。
 5. Claude 连接命中 `🤖 Claude 住宅链`，OpenAI 连接命中 `🤖 OpenAI 住宅链`；Gemini 等其他 AI、国内网站和普通下载都不命中住宅链。
 6. 住宅出口检测显示预期的 IPv4；浏览器 WebRTC 检测不暴露本地公网出口。
 

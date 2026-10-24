@@ -51,6 +51,7 @@ class ChainConfigTests(unittest.TestCase):
         expected_rules = [
             f"ruleset={CLAUDE_POLICY},clash-classic:https://raw.githubusercontent.com/Bloomberg-zhong/openclash-rules/main/rules/claude.yaml,86400",
             f"ruleset={CLAUDE_POLICY},[]GEOSITE,anthropic",
+            f"ruleset={OPENAI_POLICY},clash-classic:https://raw.githubusercontent.com/Bloomberg-zhong/openclash-rules/main/rules/openai.yaml,86400",
             f"ruleset={OPENAI_POLICY},[]GEOSITE,openai",
             f"ruleset={SINGAPORE_POLICY},clash-domain:https://raw.githubusercontent.com/Bloomberg-zhong/openclash-rules/main/rules/singapore.yaml,86400",
         ]
@@ -62,8 +63,8 @@ class ChainConfigTests(unittest.TestCase):
         self.assertNotIn("住宅链式出口", custom_rules + custom_groups)
 
         for group in [
-            f"custom_proxy_group={CLAUDE_POLICY}`fallback`[]🇸🇬 SG`https://api.anthropic.com`180",
-            f"custom_proxy_group={OPENAI_POLICY}`fallback`[]🇸🇬 SG`https://api.openai.com`180",
+            f"custom_proxy_group={CLAUDE_POLICY}`fallback`[]REJECT`https://api.anthropic.com`180",
+            f"custom_proxy_group={OPENAI_POLICY}`fallback`[]REJECT`https://api.openai.com`180",
             f"custom_proxy_group={SINGAPORE_POLICY}`fallback`[]{CLAUDE_POLICY}`[]🇸🇬 SG`",
         ]:
             self.assertIn(group, generated)
@@ -72,6 +73,63 @@ class ChainConfigTests(unittest.TestCase):
             generated.index(f"ruleset={OPENAI_POLICY},[]GEOSITE,openai"),
             generated.index("ruleset=🤖 ChatGPT,[]GEOSITE,openai"),
         )
+
+    def test_ai_groups_fail_closed_without_overwrite_module(self) -> None:
+        custom_groups = (ROOT / "custom" / "groups.ini").read_text(encoding="utf-8")
+        for policy in [CLAUDE_POLICY, OPENAI_POLICY]:
+            lines = [
+                line
+                for line in custom_groups.splitlines()
+                if line.startswith(f"custom_proxy_group={policy}`")
+            ]
+            self.assertEqual(len(lines), 1, f"{policy} must be defined once")
+            members = [
+                part[2:] for part in lines[0].split("`")[2:] if part.startswith("[]")
+            ]
+            # 覆写未生效时只能拒绝，不能走普通节点或直连。
+            self.assertEqual(members, ["REJECT"], f"{policy} leaks without overwrite")
+
+    def test_openai_rules_list_core_domains(self) -> None:
+        rules = (ROOT / "rules" / "openai.yaml").read_text(encoding="utf-8")
+        for domain in [
+            "openai.com",
+            "chatgpt.com",
+            "chat.com",
+            "sora.com",
+            "oaistatic.com",
+            "oaiusercontent.com",
+        ]:
+            self.assertIn(f"DOMAIN-SUFFIX,{domain}", rules)
+        self.assertIn("DOMAIN-KEYWORD,openai", rules)
+
+    def test_overwrite_module_puts_ai_rules_first(self) -> None:
+        module = (ROOT / "openclash" / "sg-residential-chain.conf").read_text(
+            encoding="utf-8"
+        )
+        rules_block = module.split("+rules:", 1)[1].split("\n\n", 1)[0]
+        rules = [
+            line.strip()[2:].strip("'")
+            for line in rules_block.splitlines()
+            if line.strip().startswith("- ")
+        ]
+        self.assertEqual(
+            rules[:4],
+            [
+                f"RULE-SET,claude,{CLAUDE_POLICY}",
+                f"GEOSITE,anthropic,{CLAUDE_POLICY}",
+                f"RULE-SET,openai,{OPENAI_POLICY}",
+                f"GEOSITE,openai,{OPENAI_POLICY}",
+            ],
+        )
+
+        # 规则集由模块自己定义，不依赖订阅转换生成的名称。
+        providers_block = module.split("\nrule-providers:", 1)[1].split("\n\n", 1)[0]
+        for name in ["claude", "openai"]:
+            self.assertIn(f"\n  {name}:", providers_block)
+            self.assertIn(
+                f"url: 'https://raw.githubusercontent.com/Bloomberg-zhong/openclash-rules/main/rules/{name}.yaml'",
+                providers_block,
+            )
 
     def test_claude_rules_cover_the_site_domain_list_and_ip_fallbacks(self) -> None:
         rule_path = ROOT / "rules" / "claude.yaml"
@@ -226,6 +284,7 @@ class ChainConfigTests(unittest.TestCase):
         for selector, policy in [
             ("'rule-set:claude':", CLAUDE_POLICY),
             ("'geosite:anthropic':", CLAUDE_POLICY),
+            ("'rule-set:openai':", OPENAI_POLICY),
             ("'geosite:openai':", OPENAI_POLICY),
         ]:
             entry = ai_dns_policy_block.split(selector, 1)[1].split("    '", 1)[0]
