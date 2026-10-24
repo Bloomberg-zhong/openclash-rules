@@ -16,7 +16,7 @@ openclash/sg-residential-chain.conf
 客户端 → OpenClash → 新加坡机场节点 → 新加坡住宅 SOCKS5 → AI 服务
 ```
 
-Gemini 等其他海外 AI、普通网页、下载和大多数 UDP 流量仍按原有规则分流，不经过住宅双跳。这样可以保持 AI 出口稳定，同时避免住宅链拖慢普通下载。
+AI 分流沿用上游同步来的 `🧠 AI` 和 `🤖 ChatGPT` 组，覆写后 Gemini 等其他海外 AI 也走住宅链。普通网页、下载和大多数 UDP 流量仍按原有规则分流，不经过住宅双跳。这样可以保持 AI 出口稳定，同时避免住宅链拖慢普通下载。
 
 ## 二、各部分的作用
 
@@ -31,7 +31,7 @@ Gemini 等其他海外 AI、普通网页、下载和大多数 UDP 流量仍按�
 ### `dns` 与 `sniffer`
 
 - 默认 `nameserver` 只用经 `♻️ 自动选择` 代理的 Cloudflare / Google DoH，国内 DNS 看不到国外域名，DNS 泄露检测不会出现国内运营商或阿里、腾讯的 DNS。
-- Claude 与 OpenAI 域名分别通过 `🤖 Claude 住宅链`、`🤖 OpenAI 住宅链` 查询，DNS 出口与连接出口一致。
+- Claude 与 OpenAI 域名通过 `🧠 AI`（住宅链）查询，DNS 出口与连接出口一致。
 - `geosite:cn,private` 用国内 DoH，国内网站解析结果不受影响。
 - `proxy-server-nameserver` 只解析机场节点自身的域名，`direct-nameserver` 只解析直连流量的域名，都用国内 DoH，避免启动时 DNS 与代理互相等待。
 - 所有 DoH 都写成 IP 形式，不依赖明文 DNS 引导。
@@ -57,10 +57,9 @@ Gemini 等其他海外 AI、普通网页、下载和大多数 UDP 流量仍按�
 
 ### `proxy-groups*`
 
-- 模板生成的 `🤖 Claude 住宅链` 和 `🤖 OpenAI 住宅链` 健康检查分别请求 `https://api.anthropic.com` 和 `https://api.openai.com`，检查的是整条住宅链。
-- 覆写后，这两个组的成员只有 `链式代理-新加坡住宅`，不通时也不会落到普通节点。
-- 模板里这两个 AI 组的兜底成员只有 `REJECT`。覆写模块没生效时，Claude/OpenAI 直接连不上，不会走普通节点或直连。
-- `新加坡住宅优先` 先走 `🤖 Claude 住宅链`，住宅链整体不通时回落到普通 `🇸🇬 SG`。
+- 改的是上游同步来的 `🧠 AI` 和 `🤖 ChatGPT`：覆写后成员只有 `链式代理-新加坡住宅`，不通时也不会落到普通节点。上游规则 `GEOSITE,openai` 指向 `🤖 ChatGPT`，所以两个组都要改。
+- 覆写模块没生效时，这两个组保持上游原样，走普通节点。
+- `新加坡住宅优先` 先走 `🧠 AI`，住宅链整体不通时回落到普通 `🇸🇬 SG`。
 
 ### `rule-providers`
 
@@ -106,10 +105,10 @@ Gemini 等其他海外 AI、普通网页、下载和大多数 UDP 流量仍按�
 按顺序检查：
 
 1. OpenClash 状态为“运行中”，日志中没有 `Parse config error`。
-2. 面板存在 `链式代理-新加坡住宅`、`🤖 Claude 住宅链`、`🤖 OpenAI 住宅链` 和 `新加坡住宅优先`。
+2. 面板存在 `链式代理-新加坡住宅`、`🧠 AI`、`🤖 ChatGPT` 和 `新加坡住宅优先`。
 3. `🇸🇬 SG` 有节点，并显示延迟。
-4. `🤖 Claude 住宅链`、`🤖 OpenAI 住宅链` 的成员只有 `链式代理-新加坡住宅`，没有 `REJECT`。如果看到 `REJECT`，说明覆写模块没有生效，此时 Claude/OpenAI 会连不上，这是有意的。
-5. Claude 连接命中 `🤖 Claude 住宅链`，OpenAI 连接命中 `🤖 OpenAI 住宅链`；Gemini 等其他 AI、国内网站和普通下载都不命中住宅链。
+4. `🧠 AI`、`🤖 ChatGPT` 的成员只有 `链式代理-新加坡住宅`。如果还能看到 HK、SG 等普通节点组，说明覆写模块没有生效。
+5. Claude、OpenAI 连接命中 `🧠 AI[链式代理-新加坡住宅]`；国内网站和普通下载都不命中住宅链。
 6. 住宅出口检测显示预期的 IPv4。
 7. 在受保护设备上打开 WebRTC 检测页（如 browserleaks.com/webrtc），不出现任何公网 IP。
 8. DNS 泄露检测页（如 browserleaks.com/dns）不出现国内运营商或阿里、腾讯的 DNS。
