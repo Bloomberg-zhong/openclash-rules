@@ -6,7 +6,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from scripts.build import LOWER_MARKER, insert_after_nth_marker  # noqa: E402
+from scripts.build import (  # noqa: E402
+    LOWER_MARKER,
+    drop_overridden_groups,
+    insert_after_nth_marker,
+)
 
 
 CLAUDE_POLICY = "🤖 Claude 住宅链"
@@ -117,6 +121,26 @@ class ChainConfigTests(unittest.TestCase):
             generated.index(f"ruleset={OPENAI_POLICY},[]GEOSITE,openai"),
             generated.index("ruleset=🤖 ChatGPT,[]GEOSITE,openai"),
         )
+
+    def test_custom_cloudflare_group_replaces_upstream_and_prefers_singapore(self) -> None:
+        upstream = (ROOT / "upstream" / "metafenliu.ini").read_text(encoding="utf-8")
+        custom_rules = (ROOT / "custom" / "rules.ini").read_text(encoding="utf-8").strip()
+        custom_groups = (ROOT / "custom" / "groups.ini").read_text(encoding="utf-8").strip()
+
+        generated = drop_overridden_groups(upstream, custom_groups)
+        generated = insert_after_nth_marker(generated, LOWER_MARKER, 1, custom_rules)
+        generated = insert_after_nth_marker(generated, LOWER_MARKER, 2, custom_groups)
+
+        cloudflare = [
+            line
+            for line in generated.splitlines()
+            if line.startswith("custom_proxy_group=☁️ cloudflare`")
+        ]
+        self.assertEqual(len(cloudflare), 1, "☁️ cloudflare must be defined once")
+        self.assertTrue(cloudflare[0].startswith("custom_proxy_group=☁️ cloudflare`select`[]🇸🇬 SG`"))
+
+        # 其他上游组不受影响。
+        self.assertIn("custom_proxy_group=🔎 Google`select`[]🇭🇰 HK`", generated)
 
     def test_ai_groups_fail_closed_without_overwrite_module(self) -> None:
         custom_groups = (ROOT / "custom" / "groups.ini").read_text(encoding="utf-8")
