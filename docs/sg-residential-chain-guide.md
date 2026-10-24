@@ -10,13 +10,13 @@ openclash/sg-residential-chain.conf
 
 ## 一、这套配置解决什么问题
 
-配置把需要稳定住宅出口的 Claude、OpenAI 和仓库中指定的海外 AI 流量按下面的路径转发：
+配置把需要稳定住宅出口的 Claude、OpenAI 流量按下面的路径转发（`singapore.yaml` 里的新加坡网站优先走同一路径）：
 
 ```text
 客户端 → OpenClash → 新加坡机场节点 → 新加坡住宅 SOCKS5 → AI 服务
 ```
 
-普通网页、下载和大多数 UDP 流量仍按原有规则分流，不经过住宅双跳。这样可以保持 AI 出口稳定，同时避免住宅链拖慢普通下载。
+Gemini 等其他海外 AI、普通网页、下载和大多数 UDP 流量仍按原有规则分流，不经过住宅双跳。这样可以保持 AI 出口稳定，同时避免住宅链拖慢普通下载。
 
 ## 二、各部分的作用
 
@@ -31,7 +31,7 @@ openclash/sg-residential-chain.conf
 ### `dns`
 
 - 普通域名使用阿里云和腾讯 DoH，避免所有 DNS 查询都走住宅双跳。
-- Claude 与 OpenAI 域名使用 Cloudflare 和 Google DoH，并通过 `住宅链式出口` 连接。
+- Claude 与 OpenAI 域名使用 Cloudflare 和 Google DoH，并分别通过 `🤖 Claude 住宅链`、`🤖 OpenAI 住宅链` 连接。
 - `proxy-server-nameserver` 只解析机场和住宅代理自身的域名，避免启动时产生 DNS 与代理互相依赖的循环。
 
 ### `+rules`
@@ -42,28 +42,30 @@ openclash/sg-residential-chain.conf
 
 ### `proxies+`
 
-- 创建住宅 SOCKS5 节点 `链式代理-新加坡住宅`。
-- `dialer-proxy: 链式前置-新加坡` 表示住宅 SOCKS5 连接本身先经过机场的新加坡节点。
-- 四个 `__RESIDENTIAL_*__` 值是必须在 OpenClash 本地替换的占位符。
+- 创建两条住宅链 `住宅链-经新加坡`、`住宅链-经亚洲备用`。它们连的是同一个住宅 SOCKS5，出口 IP 相同。
+- `dialer-proxy` 决定住宅 SOCKS5 连接先经过哪组机场节点：分别是 `前置-新加坡` 和 `前置-亚洲备用`（香港 / 日本 / 台湾）。
+- 四个 `__RESIDENTIAL_*__` 值在两条链里各出现一次，共 8 处，必须在 OpenClash 本地全部替换。
 
 ### `proxy-groups+`
 
-- 创建机场前置组 `链式前置-新加坡`。
+- 创建机场前置组 `前置-新加坡` 和 `前置-亚洲备用`，类型都是 `fallback`。
+- 当前节点健康检查失败，或真实连接连续失败 2 次（`max-failed-times: 2`），就自动切到下一个节点，不需要手动选。
 - `include-all-providers: true` 自动读取最终配置中的全部订阅 provider。
-- `filter` 只留下名称包含新加坡标识的节点。
+- `filter` 按节点名称筛选新加坡，或香港 / 日本 / 台湾节点。
 - 配置不再依赖固定的 `Provider_xxxxxx` 名称，因此机场更新 provider ID 后不会因为旧 ID 而启动失败。
 
 ### `proxy-groups*`
 
-- 把已有的 `住宅链式出口` 组唯一指向住宅 SOCKS5 节点。
-- 仓库规则命中 `住宅链式出口` 后，流量才会进入完整双跳链路。
+- 模板生成的 `🤖 Claude 住宅链` 和 `🤖 OpenAI 住宅链` 是 fallback 组，健康检查分别请求 `https://api.anthropic.com` 和 `https://api.openai.com`。检查的是整条住宅链，不只是前置节点。
+- 覆写后，这两个组的成员只剩两条住宅链：第一条不通就切第二条；两条都不通时仍停在住宅链上，不会落到普通节点。
+- `新加坡住宅优先` 先走 `🤖 Claude 住宅链`，住宅链整体不通时回落到普通 `🇸🇬 SG`。
 
 ## 三、首次部署
 
 1. 确认 OpenClash 版本不低于 `v0.47.081`，核心选择 Meta/Mihomo。
 2. 打开仓库中的 `openclash/sg-residential-chain.conf`，复制全部内容。
 3. 在 OpenClash 的“运行状态 → 覆写模块”中新建模块并粘贴。
-4. 只在路由器本地替换以下四个占位符：
+4. 只在路由器本地替换以下四个占位符（每个出现两次，用全部替换）：
 
    ```text
    __RESIDENTIAL_SERVER__
@@ -74,7 +76,7 @@ openclash/sg-residential-chain.conf
 
 5. 把端口占位符替换为纯数字；不要给端口加引号，也不要留下任何占位符。
 6. 保存模块，为当前配置启用它，然后更新配置并重启 OpenClash。
-7. 在控制面板的 `链式前置-新加坡` 中选择一个延迟和丢包较稳定的新加坡机场节点。
+7. 不需要手动选节点，前置组会自动选可用节点。
 
 如果需要在电脑上临时保留已填写版本，请命名为：
 
@@ -88,7 +90,7 @@ openclash/sg-residential-chain.local.conf
 
 ### 机场订阅更新
 
-正常更新订阅并重启即可。前置组会自动读取新的 provider，不需要手动填写 `Provider_*` 名称。更新后如果原节点名称消失，只需重新选择一个新加坡节点。
+正常更新订阅并重启即可。前置组会自动读取新的 provider，不需要手动填写 `Provider_*` 名称。节点改名或消失后，fallback 前置组会自动选下一个可用节点。
 
 ### 住宅代理信息更新
 
@@ -103,10 +105,10 @@ openclash/sg-residential-chain.local.conf
 按顺序检查：
 
 1. OpenClash 状态为“运行中”，日志中没有 `Parse config error`。
-2. 面板存在 `链式前置-新加坡`、`链式代理-新加坡住宅` 和 `住宅链式出口`。
-3. `链式前置-新加坡` 中至少有一个可选的新加坡节点。
-4. Claude/OpenAI 连接命中 `住宅链式出口`。
-5. 国内网站和普通下载没有命中住宅链式出口。
+2. 面板存在 `前置-新加坡`、`前置-亚洲备用`、`🤖 Claude 住宅链`、`🤖 OpenAI 住宅链` 和 `新加坡住宅优先`。
+3. 两个前置组都有节点，并显示延迟。
+4. `🤖 Claude 住宅链`、`🤖 OpenAI 住宅链` 的成员只有 `住宅链-经新加坡` 和 `住宅链-经亚洲备用`，没有 `🇸🇬 SG`。如果仍看到 `🇸🇬 SG`，说明覆写模块没有生效。
+5. Claude 连接命中 `🤖 Claude 住宅链`，OpenAI 连接命中 `🤖 OpenAI 住宅链`；Gemini 等其他 AI、国内网站和普通下载都不命中住宅链。
 6. 住宅出口检测显示预期的 IPv4；浏览器 WebRTC 检测不暴露本地公网出口。
 
 更新前后测速应分开观察两类流量：普通下载用于判断机场普通节点速度，AI 请求用于判断住宅链稳定性。住宅双跳本身延迟通常高于普通单跳，不应把它设置成所有流量的全局出口。
@@ -119,7 +121,7 @@ openclash/sg-residential-chain.local.conf
 
 ### 配置解析失败或住宅节点不可用
 
-检查四个占位符是否已全部替换，端口是否为有效数字，YAML 缩进是否在复制时被破坏。不要复制网页渲染产生的反斜杠转义或 Markdown 链接格式。
+检查四个占位符的 8 处是否已全部替换，端口是否为有效数字，YAML 缩进是否在复制时被破坏。不要复制网页渲染产生的反斜杠转义或 Markdown 链接格式。
 
 ### 前置组没有节点
 
@@ -135,7 +137,7 @@ openclash/sg-residential-chain.local.conf
 
 ## 七、安全要求
 
-- Git 中只允许保存四个 `__RESIDENTIAL_*__` 占位符。
+- Git 中只允许保存 `__RESIDENTIAL_*__` 占位符。
 - 不在 Issue、截图、日志或聊天中公开真实服务器、端口、账号和密码。
 - 如果凭据曾经公开，应在住宅代理服务商处轮换密码或整套凭据。
 - 提交前运行仓库测试并检查 Git 差异，确认没有真实凭据进入跟踪文件。
