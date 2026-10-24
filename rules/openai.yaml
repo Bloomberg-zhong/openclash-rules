@@ -1,0 +1,14 @@
+payload:
+  # OpenAI / ChatGPT 核心域名，不只依赖 GEOSITE,openai
+  - 'DOMAIN-SUFFIX,openai.com'
+  - 'DOMAIN-SUFFIX,chatgpt.com'
+  - 'DOMAIN-SUFFIX,chat.com'
+  - 'DOMAIN-SUFFIX,sora.com'
+
+  # 静态资源、用户上传内容与 CDN
+  - 'DOMAIN-SUFFIX,oaistatic.com'
+  - 'DOMAIN-SUFFIX,oaiusercontent.com'
+  - 'DOMAIN-SUFFIX,openaiapi-site.azureedge.net'
+
+  # 兜底：任何包含 openai 的域名（含 Azure OpenAI 等）
+  - 'DOMAIN-KEYWORD,openai'
