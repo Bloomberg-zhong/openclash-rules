@@ -60,6 +60,7 @@ Gemini 等其他海外 AI、普通网页、下载和大多数 UDP 流量仍按�
 - 创建机场前置组 `前置-新加坡` 和 `前置-亚洲备用`，类型都是 `fallback`。
 - 当前节点健康检查失败，或真实连接连续失败 2 次（`max-failed-times: 2`），就自动切到下一个节点，不需要手动选。
 - `include-all-providers: true` 自动读取最终配置中的全部订阅 provider。
+- `empty-fallback: REJECT`：前置组没有任何匹配节点（订阅为空、过期或 `filter` 没匹配）时，mihomo 默认会回落到直连，路由器就会绕过机场直接去连住宅 SOCKS5，日志里表现为 `dial tcp 住宅IP:端口: i/o timeout` / `SOCKS version error`，策略组显示为 `[COMPATIBLE]`。设成 REJECT 后这种情况直接断开。
 - `filter` 按节点名称筛选新加坡，或香港 / 日本 / 台湾节点。
 - 配置不再依赖固定的 `Provider_xxxxxx` 名称，因此机场更新 provider ID 后不会因为旧 ID 而启动失败。
 
@@ -136,6 +137,8 @@ Gemini 等其他海外 AI、普通网页、下载和大多数 UDP 流量仍按�
 检查模块「环境变量」里四个键是否都已填写，端口是否为纯数字，密码是否含分号。如果面板里住宅节点地址显示为 `${RESIDENTIAL_SERVER}` 原文，说明 OpenClash 版本不支持环境变量展开，需要升级。
 
 ### 前置组没有节点
+
+日志出现 `using xxx[COMPATIBLE]`、住宅链报 `SOCKS version error` 或 `i/o timeout`，基本就是这个原因：订阅里没有节点，先更新订阅。
 
 机场可能改变了新加坡节点的命名方式。先确认订阅确实包含新加坡节点；如名称没有“新加坡”“SG”“Singapore”或新加坡旗帜，需要按实际命名调整 `filter`。
 
