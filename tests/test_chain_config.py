@@ -14,7 +14,51 @@ OPENAI_POLICY = "🤖 OpenAI 住宅链"
 SINGAPORE_POLICY = "新加坡住宅优先"
 CHAIN_PROXIES = ["住宅链-经新加坡", "住宅链-经亚洲备用"]
 FRONT_GROUPS = ["前置-新加坡", "前置-亚洲备用"]
-WEBRTC_PROTECTED_CLIENTS = ["192.168.198.218/32", "192.168.198.216/32"]
+WEBRTC_PROTECTED_CLIENTS = [
+    "192.168.198.218/32",
+    "192.168.198.216/32",
+    "192.168.198.15/32",
+]
+TAILSCALE_RULES = [
+    "IP-CIDR,100.64.0.0/10,DIRECT,no-resolve",
+    "AND,((NETWORK,UDP),(SRC-PORT,41641)),DIRECT",
+    "AND,((NETWORK,UDP),(DST-PORT,41641)),DIRECT",
+    "AND,((NETWORK,UDP),(DOMAIN-SUFFIX,tailscale.com)),DIRECT",
+    "AND,((NETWORK,UDP),(DOMAIN-SUFFIX,tailscale.io)),DIRECT",
+]
+AI_RULES = [
+    f"RULE-SET,claude,{CLAUDE_POLICY}",
+    f"GEOSITE,anthropic,{CLAUDE_POLICY}",
+    f"RULE-SET,openai,{OPENAI_POLICY}",
+    f"GEOSITE,openai,{OPENAI_POLICY}",
+]
+DOMESTIC_DOH = ["https://223.5.5.5/dns-query", "https://1.12.12.12/dns-query"]
+RESIDENTIAL_ENV = [
+    "RESIDENTIAL_SERVER",
+    "RESIDENTIAL_PORT",
+    "RESIDENTIAL_USERNAME",
+    "RESIDENTIAL_PASSWORD",
+]
+
+
+def read_module() -> str:
+    return (ROOT / "openclash" / "sg-residential-chain.conf").read_text(encoding="utf-8")
+
+
+def read_prepended_rules(module: str) -> list[str]:
+    rules_block = module.split("\n+rules:", 1)[1].split("\n\n", 1)[0]
+    return [
+        line.strip()[2:].strip("'")
+        for line in rules_block.splitlines()
+        if line.strip().startswith("- ")
+    ]
+
+
+def webrtc_rule(client: str) -> str:
+    return (
+        f"AND,((SRC-IP-CIDR,{client}),(NETWORK,UDP),"
+        "(NOT,((OR,((DST-PORT,53),(DST-PORT,123)))))),REJECT"
+    )
 
 
 def read_general_settings(module: str) -> dict[str, str]:
@@ -102,25 +146,20 @@ class ChainConfigTests(unittest.TestCase):
             self.assertIn(f"DOMAIN-SUFFIX,{domain}", rules)
         self.assertIn("DOMAIN-KEYWORD,openai", rules)
 
-    def test_overwrite_module_puts_ai_rules_first(self) -> None:
-        module = (ROOT / "openclash" / "sg-residential-chain.conf").read_text(
-            encoding="utf-8"
-        )
-        rules_block = module.split("+rules:", 1)[1].split("\n\n", 1)[0]
-        rules = [
-            line.strip()[2:].strip("'")
-            for line in rules_block.splitlines()
-            if line.strip().startswith("- ")
-        ]
-        self.assertEqual(
-            rules[:4],
-            [
-                f"RULE-SET,claude,{CLAUDE_POLICY}",
-                f"GEOSITE,anthropic,{CLAUDE_POLICY}",
-                f"RULE-SET,openai,{OPENAI_POLICY}",
-                f"GEOSITE,openai,{OPENAI_POLICY}",
-            ],
-        )
+    def test_overwrite_module_rules_cannot_divert_ai_traffic(self) -> None:
+        module = read_module()
+        rules = read_prepended_rules(module)
+
+        ai_start = rules.index(AI_RULES[0])
+        self.assertEqual(rules[ai_start : ai_start + 4], AI_RULES)
+
+        # AI 规则前面只允许出现 REJECT，或只匹配 Tailscale 的放行规则，
+        # 这些都不可能把 Claude / OpenAI 送到普通节点或直连。
+        for rule in rules[:ai_start]:
+            self.assertTrue(
+                rule.endswith(",REJECT") or rule in TAILSCALE_RULES,
+                f"rule ahead of AI rules may divert AI traffic: {rule}",
+            )
 
         # 规则集由模块自己定义，不依赖订阅转换生成的名称。
         providers_block = module.split("\nrule-providers:", 1)[1].split("\n\n", 1)[0]
@@ -185,12 +224,12 @@ class ChainConfigTests(unittest.TestCase):
             "type: fallback",
             "max-failed-times: 2",
             "filter: '(?i)(🇸🇬|新加坡|\\bSG\\b|singapore)'",
-            "__RESIDENTIAL_SERVER__",
-            "__RESIDENTIAL_PORT__",
-            "__RESIDENTIAL_USERNAME__",
-            "__RESIDENTIAL_PASSWORD__",
+            "#!ENV = " + ";".join(RESIDENTIAL_ENV),
         ]:
             self.assertIn(required, module)
+
+        # 真实凭据只填在路由器的模块环境变量里，仓库只保留变量引用。
+        self.assertNotIn("__RESIDENTIAL_", module)
 
         front_group_block = module.split("proxy-groups+:", 1)[1].split(
             "proxy-groups*:", 1
@@ -212,10 +251,10 @@ class ChainConfigTests(unittest.TestCase):
 
         proxy_block = module.split("proxies+:", 1)[1].split("proxy-groups+:", 1)[0]
         expected_credentials = {
-            "server": "'__RESIDENTIAL_SERVER__'",
-            "port": "__RESIDENTIAL_PORT__",
-            "username": "'__RESIDENTIAL_USERNAME__'",
-            "password": "'__RESIDENTIAL_PASSWORD__'",
+            "server": "'${RESIDENTIAL_SERVER}'",
+            "port": "${RESIDENTIAL_PORT}",
+            "username": "'${RESIDENTIAL_USERNAME}'",
+            "password": "'${RESIDENTIAL_PASSWORD}'",
         }
         chain_entries = proxy_block.split("  - name: ")[1:]
         self.assertEqual(
@@ -234,10 +273,8 @@ class ChainConfigTests(unittest.TestCase):
                     actual_credentials[key] = value.strip()
             self.assertEqual(actual_credentials, expected_credentials)
 
-    def test_overwrite_module_scopes_ai_dns_and_blocks_common_webrtc_ports(self) -> None:
-        module = (ROOT / "openclash" / "sg-residential-chain.conf").read_text(
-            encoding="utf-8"
-        )
+    def test_overwrite_module_prevents_dns_leaks(self) -> None:
+        module = read_module()
         general = read_general_settings(module)
 
         expected_general = {
@@ -263,22 +300,28 @@ class ChainConfigTests(unittest.TestCase):
             "default-nameserver!:",
             "nameserver!:",
             "nameserver-policy!:",
-            "'rule-set:claude':",
-            "'geosite:anthropic':",
-            "'geosite:openai':",
             "proxy-server-nameserver!:",
-            "+rules:",
+            "direct-nameserver!:",
+            "- '+.ts.net'",
+            "sniffer!:",
+            "override-destination: true",
         ]:
             self.assertIn(required, module)
 
-        default_nameserver_block = module.split("  nameserver!:", 1)[1].split(
+        # 默认 nameserver 只能是经代理的境外 DoH，国内 DNS 不能看到国外域名。
+        nameserver_block = module.split("  nameserver!:", 1)[1].split(
             "  nameserver-policy!:", 1
         )[0]
-        self.assertIn("https://dns.alidns.com/dns-query", default_nameserver_block)
-        self.assertIn("https://doh.pub/dns-query", default_nameserver_block)
-        self.assertNotIn("住宅链", default_nameserver_block)
+        self.assertIn("https://1.1.1.1/dns-query#♻️ 自动选择", nameserver_block)
+        self.assertIn("https://8.8.8.8/dns-query#♻️ 自动选择", nameserver_block)
+        for domestic in DOMESTIC_DOH + ["alidns", "doh.pub", "223.5.5.5", "119.29.29.29"]:
+            self.assertNotIn(domestic, nameserver_block)
 
-        ai_dns_policy_block = module.split("  nameserver-policy!:", 1)[1].split(
+        # ♻️ 自动选择 必须由上游模板提供，否则 DNS 无法建立连接。
+        upstream = (ROOT / "upstream" / "metafenliu.ini").read_text(encoding="utf-8")
+        self.assertIn("custom_proxy_group=♻️ 自动选择`", upstream)
+
+        policy_block = module.split("  nameserver-policy!:", 1)[1].split(
             "  proxy-server-nameserver!:", 1
         )[0]
         for selector, policy in [
@@ -287,24 +330,31 @@ class ChainConfigTests(unittest.TestCase):
             ("'rule-set:openai':", OPENAI_POLICY),
             ("'geosite:openai':", OPENAI_POLICY),
         ]:
-            entry = ai_dns_policy_block.split(selector, 1)[1].split("    '", 1)[0]
+            entry = policy_block.split(selector, 1)[1].split("    '", 1)[0]
             self.assertIn(f"https://1.1.1.1/dns-query#{policy}", entry)
-            self.assertIn(f"https://dns.google/dns-query#{policy}", entry)
+            self.assertIn(f"https://8.8.8.8/dns-query#{policy}", entry)
+
+        cn_entry = policy_block.split("'geosite:cn,private':", 1)[1]
+        for doh in DOMESTIC_DOH:
+            self.assertIn(doh, cn_entry)
+
+    def test_overwrite_module_blocks_webrtc_udp_but_allows_tailscale(self) -> None:
+        module = read_module()
+        rules = read_prepended_rules(module)
 
         for client in WEBRTC_PROTECTED_CLIENTS:
-            self.assertIn(
-                f"AND,((SRC-IP-CIDR,{client}),(NETWORK,udp),(DST-PORT,3478-3481)),REJECT",
-                module,
-            )
-            self.assertIn(
-                f"AND,((SRC-IP-CIDR,{client}),(NETWORK,udp),(DST-PORT,19302-19309)),REJECT",
-                module,
-            )
-            self.assertNotRegex(
-                module, rf"AND,\(\(SRC-IP-CIDR,{client}\),\(NETWORK,udp\)\),.*住宅链"
-            )
+            self.assertIn(webrtc_rule(client), rules)
+        self.assertIn("DST-PORT,853,REJECT", rules)
 
-        self.assertNotRegex(module, r"- NETWORK,udp,.*住宅链")
+        # Tailscale 放行必须排在所有 WebRTC 拒绝规则前面。
+        first_reject = min(rules.index(webrtc_rule(c)) for c in WEBRTC_PROTECTED_CLIENTS)
+        for rule in TAILSCALE_RULES:
+            self.assertIn(rule, rules)
+            self.assertLess(rules.index(rule), first_reject)
+
+        # 不再使用只拦固定端口的旧规则，也不把 UDP 整体送进住宅链。
+        self.assertNotRegex(module, r"DST-PORT,(3478-3481|19302-19309)\)\),REJECT")
+        self.assertNotRegex(module, r"(?i)NETWORK,udp\)?,.*住宅链")
 
 
 if __name__ == "__main__":
