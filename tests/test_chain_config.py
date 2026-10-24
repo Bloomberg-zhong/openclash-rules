@@ -239,6 +239,8 @@ class ChainConfigTests(unittest.TestCase):
         self.assertNotIn("type: select", front_group_block)
         for front in FRONT_GROUPS:
             self.assertIn(f"- name: '{front}'", front_group_block)
+        # 前置组没有节点时 mihomo 默认回落到直连，路由器会直接去连住宅 SOCKS5。
+        self.assertEqual(front_group_block.count("empty-fallback: REJECT"), len(FRONT_GROUPS))
 
         # AI 组覆写后只能包含住宅链，不能出现普通节点或 DIRECT。
         ai_set_block = module.split("proxy-groups*:", 1)[1]
