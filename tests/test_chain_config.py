@@ -16,8 +16,8 @@ from scripts.build import (  # noqa: E402
 CLAUDE_POLICY = "🤖 Claude 住宅链"
 OPENAI_POLICY = "🤖 OpenAI 住宅链"
 SINGAPORE_POLICY = "新加坡住宅优先"
-CHAIN_PROXIES = ["住宅链-经新加坡", "住宅链-经亚洲备用"]
-FRONT_GROUPS = ["前置-新加坡", "前置-亚洲备用"]
+CHAIN_PROXY = "链式代理-新加坡住宅"
+FRONT_GROUP = "🇸🇬 SG"
 WEBRTC_PROTECTED_CLIENTS = [
     "192.168.198.218/32",
     "192.168.198.216/32",
@@ -232,22 +232,15 @@ class ChainConfigTests(unittest.TestCase):
         self.assertIn("IP-ASN,399358,no-resolve", rules)
 
     def test_overwrite_module_adds_udp_chain_without_real_credentials(self) -> None:
-        module_path = ROOT / "openclash" / "sg-residential-chain.conf"
-        self.assertTrue(module_path.exists(), "OpenClash overwrite module is missing")
-        module = module_path.read_text(encoding="utf-8")
+        module = read_module()
 
         for required in [
             "[YAML]",
             "proxies+:",
             "type: socks5",
             "udp: true",
-            "proxy-groups+:",
             "proxy-groups*:",
             "name: '/^🤖 (Claude|OpenAI) 住宅链$/'",
-            "include-all-providers: true",
-            "type: fallback",
-            "max-failed-times: 2",
-            "filter: '(?i)(🇸🇬|新加坡|\\bSG\\b|singapore)'",
             "#!ENV = " + ";".join(RESIDENTIAL_ENV),
         ]:
             self.assertIn(required, module)
@@ -255,16 +248,33 @@ class ChainConfigTests(unittest.TestCase):
         # 真实凭据只填在路由器的模块环境变量里，仓库只保留变量引用。
         self.assertNotIn("__RESIDENTIAL_", module)
 
-        front_group_block = module.split("proxy-groups+:", 1)[1].split(
-            "proxy-groups*:", 1
-        )[0]
-        self.assertNotRegex(front_group_block, r"Provider_[A-Z0-9]+")
-        self.assertNotIn("\n    use:", front_group_block)
-        self.assertNotIn("type: select", front_group_block)
-        for front in FRONT_GROUPS:
-            self.assertIn(f"- name: '{front}'", front_group_block)
-        # 前置组没有节点时 mihomo 默认回落到直连，路由器会直接去连住宅 SOCKS5。
-        self.assertEqual(front_group_block.count("empty-fallback: REJECT"), len(FRONT_GROUPS))
+        # 前置直接用模板里的 🇸🇬 SG，模块不再自建前置组。
+        self.assertNotIn("proxy-groups+:", module)
+        upstream = (ROOT / "upstream" / "metafenliu.ini").read_text(encoding="utf-8")
+        self.assertIn(f"custom_proxy_group={FRONT_GROUP}`url-test`", upstream)
+
+        proxy_block = module.split("proxies+:", 1)[1].split("proxy-groups*:", 1)[0]
+        chain_entries = proxy_block.split("  - name: ")[1:]
+        self.assertEqual(
+            [entry.splitlines()[0].strip("'") for entry in chain_entries], [CHAIN_PROXY]
+        )
+        entry = chain_entries[0]
+        self.assertIn(f"dialer-proxy: '{FRONT_GROUP}'", entry)
+        expected_credentials = {
+            "server": "'${RESIDENTIAL_SERVER}'",
+            "port": "${RESIDENTIAL_PORT}",
+            "username": "'${RESIDENTIAL_USERNAME}'",
+            "password": "'${RESIDENTIAL_PASSWORD}'",
+        }
+        actual_credentials = {}
+        for raw_line in entry.splitlines():
+            line = raw_line.strip()
+            if ":" not in line:
+                continue
+            key, value = line.split(":", 1)
+            if key in expected_credentials:
+                actual_credentials[key] = value.strip()
+        self.assertEqual(actual_credentials, expected_credentials)
 
         # AI 组覆写后只能包含住宅链，不能出现普通节点或 DIRECT。
         ai_set_block = module.split("proxy-groups*:", 1)[1]
@@ -273,31 +283,7 @@ class ChainConfigTests(unittest.TestCase):
             for line in ai_set_block.split("    proxies:", 1)[1].splitlines()[1:]
             if line.startswith("      - ")
         ]
-        self.assertEqual(members, CHAIN_PROXIES)
-
-        proxy_block = module.split("proxies+:", 1)[1].split("proxy-groups+:", 1)[0]
-        expected_credentials = {
-            "server": "'${RESIDENTIAL_SERVER}'",
-            "port": "${RESIDENTIAL_PORT}",
-            "username": "'${RESIDENTIAL_USERNAME}'",
-            "password": "'${RESIDENTIAL_PASSWORD}'",
-        }
-        chain_entries = proxy_block.split("  - name: ")[1:]
-        self.assertEqual(
-            [entry.splitlines()[0].strip("'") for entry in chain_entries],
-            CHAIN_PROXIES,
-        )
-        for entry, front in zip(chain_entries, FRONT_GROUPS):
-            self.assertIn(f"dialer-proxy: '{front}'", entry)
-            actual_credentials = {}
-            for raw_line in entry.splitlines():
-                line = raw_line.strip()
-                if ":" not in line:
-                    continue
-                key, value = line.split(":", 1)
-                if key in expected_credentials:
-                    actual_credentials[key] = value.strip()
-            self.assertEqual(actual_credentials, expected_credentials)
+        self.assertEqual(members, [CHAIN_PROXY])
 
     def test_overwrite_module_prevents_dns_leaks(self) -> None:
         module = read_module()
