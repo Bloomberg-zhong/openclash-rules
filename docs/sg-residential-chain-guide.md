@@ -16,7 +16,7 @@ openclash/sg-residential-chain.conf
 客户端 → OpenClash → 新加坡机场节点 → 新加坡住宅 SOCKS5 → AI 服务
 ```
 
-Gemini 等其他海外 AI、普通网页、下载和大多数 UDP 流量仍按原有规则分流，不经过住宅双跳。这样可以保持 AI 出口稳定，同时避免住宅链拖慢普通下载。
+AI 分流沿用上游同步来的 `🧠 AI` 和 `🤖 ChatGPT` 组，覆写后 Gemini 等其他海外 AI 也走住宅链。普通网页、下载和大多数 UDP 流量仍按原有规则分流，不经过住宅双跳。这样可以保持 AI 出口稳定，同时避免住宅链拖慢普通下载。
 
 ## 二、各部分的作用
 
@@ -31,7 +31,7 @@ Gemini 等其他海外 AI、普通网页、下载和大多数 UDP 流量仍按�
 ### `dns` 与 `sniffer`
 
 - 默认 `nameserver` 只用经 `♻️ 自动选择` 代理的 Cloudflare / Google DoH，国内 DNS 看不到国外域名，DNS 泄露检测不会出现国内运营商或阿里、腾讯的 DNS。
-- Claude 与 OpenAI 域名分别通过 `🤖 Claude 住宅链`、`🤖 OpenAI 住宅链` 查询，DNS 出口与连接出口一致。
+- Claude 与 OpenAI 域名通过 `🧠 AI`（住宅链）查询，DNS 出口与连接出口一致。
 - `geosite:cn,private` 用国内 DoH，国内网站解析结果不受影响。
 - `proxy-server-nameserver` 只解析机场节点自身的域名，`direct-nameserver` 只解析直连流量的域名，都用国内 DoH，避免启动时 DNS 与代理互相等待。
 - 所有 DoH 都写成 IP 形式，不依赖明文 DNS 引导。
@@ -51,25 +51,15 @@ Gemini 等其他海外 AI、普通网页、下载和大多数 UDP 流量仍按�
 
 ### `proxies+`
 
-- 创建两条住宅链 `住宅链-经新加坡`、`住宅链-经亚洲备用`。它们连的是同一个住宅 SOCKS5，出口 IP 相同。
-- `dialer-proxy` 决定住宅 SOCKS5 连接先经过哪组机场节点：分别是 `前置-新加坡` 和 `前置-亚洲备用`（香港 / 日本 / 台湾）。
-- 服务器、端口、账号、密码都引用 `${RESIDENTIAL_*}` 环境变量，两条链共用同一组值。
-
-### `proxy-groups+`
-
-- 创建机场前置组 `前置-新加坡` 和 `前置-亚洲备用`，类型都是 `fallback`。
-- 当前节点健康检查失败，或真实连接连续失败 2 次（`max-failed-times: 2`），就自动切到下一个节点，不需要手动选。
-- `include-all-providers: true` 自动读取最终配置中的全部订阅 provider。
-- `empty-fallback: REJECT`：前置组没有任何匹配节点（订阅为空、过期或 `filter` 没匹配）时，mihomo 默认会回落到直连，路由器就会绕过机场直接去连住宅 SOCKS5，日志里表现为 `dial tcp 住宅IP:端口: i/o timeout` / `SOCKS version error`，策略组显示为 `[COMPATIBLE]`。设成 REJECT 后这种情况直接断开。
-- `filter` 按节点名称筛选新加坡，或香港 / 日本 / 台湾节点。
-- 配置不再依赖固定的 `Provider_xxxxxx` 名称，因此机场更新 provider ID 后不会因为旧 ID 而启动失败。
+- 创建一条住宅链 `链式代理-新加坡住宅`，和旧版本地配置的做法一样。
+- `dialer-proxy: '🇸🇬 SG'`：住宅 SOCKS5 连接先经模板里的 `🇸🇬 SG`。它是 url-test 组，会自动选延迟最低的可用新加坡节点，不需要手动选。
+- 服务器、端口、账号、密码都引用 `${RESIDENTIAL_*}` 环境变量。
 
 ### `proxy-groups*`
 
-- 模板生成的 `🤖 Claude 住宅链` 和 `🤖 OpenAI 住宅链` 是 fallback 组，健康检查分别请求 `https://api.anthropic.com` 和 `https://api.openai.com`。检查的是整条住宅链，不只是前置节点。
-- 覆写后，这两个组的成员只剩两条住宅链：第一条不通就切第二条；两条都不通时仍停在住宅链上，不会落到普通节点。
-- 模板里这两个 AI 组的兜底成员只有 `REJECT`。覆写模块没生效时，Claude/OpenAI 直接连不上，不会走普通节点或直连。
-- `新加坡住宅优先` 先走 `🤖 Claude 住宅链`，住宅链整体不通时回落到普通 `🇸🇬 SG`。
+- 改的是上游同步来的 `🧠 AI` 和 `🤖 ChatGPT`：覆写后成员只有 `链式代理-新加坡住宅`，不通时也不会落到普通节点。上游规则 `GEOSITE,openai` 指向 `🤖 ChatGPT`，所以两个组都要改。
+- 覆写模块没生效时，这两个组保持上游原样，走普通节点。
+- `新加坡住宅优先` 先走 `🧠 AI`，住宅链整体不通时回落到普通 `🇸🇬 SG`。
 
 ### `rule-providers`
 
@@ -94,13 +84,13 @@ Gemini 等其他海外 AI、普通网页、下载和大多数 UDP 流量仍按�
 
    端口只填数字；密码里不能含英文分号 `;`。
 6. 保存并打开模块开关。停用旧版的本地链式代理模块，避免节点和策略组重名。
-7. 切换到这份配置并重启 OpenClash。不需要手动选节点，前置组会自动选可用节点。
+7. 切换到这份配置并重启 OpenClash。不需要手动选节点，`🇸🇬 SG` 会自动选可用的新加坡节点。
 
 ## 四、日常更新
 
 ### 机场订阅更新
 
-正常更新订阅并重启即可。前置组会自动读取新的 provider，不需要手动填写 `Provider_*` 名称。节点改名或消失后，fallback 前置组会自动选下一个可用节点。
+正常更新订阅并重启即可。模块不引用 `Provider_*` 名称，节点改名或消失后 `🇸🇬 SG` 会自动选下一个可用节点。
 
 ### 住宅代理信息更新
 
@@ -115,10 +105,10 @@ Gemini 等其他海外 AI、普通网页、下载和大多数 UDP 流量仍按�
 按顺序检查：
 
 1. OpenClash 状态为“运行中”，日志中没有 `Parse config error`。
-2. 面板存在 `前置-新加坡`、`前置-亚洲备用`、`🤖 Claude 住宅链`、`🤖 OpenAI 住宅链` 和 `新加坡住宅优先`。
-3. 两个前置组都有节点，并显示延迟。
-4. `🤖 Claude 住宅链`、`🤖 OpenAI 住宅链` 的成员只有 `住宅链-经新加坡` 和 `住宅链-经亚洲备用`，没有 `REJECT`。如果看到 `REJECT`，说明覆写模块没有生效，此时 Claude/OpenAI 会连不上，这是有意的。
-5. Claude 连接命中 `🤖 Claude 住宅链`，OpenAI 连接命中 `🤖 OpenAI 住宅链`；Gemini 等其他 AI、国内网站和普通下载都不命中住宅链。
+2. 面板存在 `链式代理-新加坡住宅`、`🧠 AI`、`🤖 ChatGPT` 和 `新加坡住宅优先`。
+3. `🇸🇬 SG` 有节点，并显示延迟。
+4. `🧠 AI`、`🤖 ChatGPT` 的成员只有 `链式代理-新加坡住宅`。如果还能看到 HK、SG 等普通节点组，说明覆写模块没有生效。
+5. Claude、OpenAI 连接命中 `🧠 AI[链式代理-新加坡住宅]`；国内网站和普通下载都不命中住宅链。
 6. 住宅出口检测显示预期的 IPv4。
 7. 在受保护设备上打开 WebRTC 检测页（如 browserleaks.com/webrtc），不出现任何公网 IP。
 8. DNS 泄露检测页（如 browserleaks.com/dns）不出现国内运营商或阿里、腾讯的 DNS。
@@ -128,19 +118,13 @@ Gemini 等其他海外 AI、普通网页、下载和大多数 UDP 流量仍按�
 
 ## 六、常见故障
 
-### `Provider_xxxxxx not found`
-
-说明正在使用旧版覆写模块，其中写死了 provider 名称。使用当前模板的 `include-all-providers: true` 与新加坡 `filter`，不要恢复固定 `use: Provider_xxxxxx`。
-
 ### 配置解析失败或住宅节点不可用
 
 检查模块「环境变量」里四个键是否都已填写，端口是否为纯数字，密码是否含分号。如果面板里住宅节点地址显示为 `${RESIDENTIAL_SERVER}` 原文，说明 OpenClash 版本不支持环境变量展开，需要升级。
 
-### 前置组没有节点
+### `🇸🇬 SG` 没有节点
 
-日志出现 `using xxx[COMPATIBLE]`、住宅链报 `SOCKS version error` 或 `i/o timeout`，基本就是这个原因：订阅里没有节点，先更新订阅。
-
-机场可能改变了新加坡节点的命名方式。先确认订阅确实包含新加坡节点；如名称没有“新加坡”“SG”“Singapore”或新加坡旗帜，需要按实际命名调整 `filter`。
+日志出现 `using xxx[COMPATIBLE]`，住宅链报 `SOCKS version error` 或 `dial tcp 住宅IP:端口: i/o timeout`，基本就是这个原因：`🇸🇬 SG` 是空组时 mihomo 会改为直连，路由器就会绕过机场直接去连住宅 SOCKS5。先确认订阅确实有节点（检查「配置订阅」的保留 / 排除关键字没有填反），再确认新加坡节点名称含“新加坡”“SG”“Singapore”或新加坡旗帜。
 
 ### AI 可用但普通下载仍慢
 

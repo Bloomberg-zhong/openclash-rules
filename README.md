@@ -21,7 +21,7 @@ openclash/*.conf
 
 链式代理分成两层维护：
 
-- GitHub 仓库中的 `custom/rules.ini`、`custom/groups.ini` 和 `rules/claude.yaml` 负责把 Claude 指向 `🤖 Claude 住宅链`、OpenAI 指向 `🤖 OpenAI 住宅链`、新加坡域名指向 `新加坡住宅优先`；其他海外 AI 交给上游 `🧠 AI` 组走普通节点。
+- AI 分流直接用上游同步来的 `🧠 AI`（`category-ai-!cn`，含 Claude、Gemini 等）和 `🤖 ChatGPT`（`GEOSITE,openai`），仓库不自建 AI 组。`custom/` 只负责把新加坡域名指向 `新加坡住宅优先`，并让 `☁️ cloudflare` 默认走新加坡。
 - OpenClash 路由器上的覆写模块负责加入住宅 SOCKS5 节点、`dialer-proxy`、DNS 与 WebRTC 防泄露、Tailscale 放行；真实凭据只填在模块的「环境变量」里。
 
 这样重新同步上游或重新转换整份配置时，分流规则仍会保留，同时住宅代理账号密码不会进入 GitHub。
@@ -65,21 +65,13 @@ RESIDENTIAL_SERVER=1.2.3.4;RESIDENTIAL_PORT=6666;RESIDENTIAL_USERNAME=xxx;RESIDE
 3. 「匹配配置文件」只选要启用链式代理的那份配置的完整路径，例如 `/etc/openclash/config/西部数据-加强链式代理.yaml`。
 4. 在「环境变量」里填写住宅代理的四项真实值，保存并打开模块开关。
 5. 切换到对应配置并重启 OpenClash。模块只在重启时生效。
-6. 不需要手动选前置节点：`前置-新加坡`、`前置-亚洲备用` 都是 fallback 组，会自动跳过失效节点。
+6. 不需要手动选前置节点：住宅 SOCKS5 直接经模板里的 `🇸🇬 SG`（url-test）连出去，自动选可用的新加坡节点。
 
 如果重启后面板里住宅节点的地址仍显示为 `${RESIDENTIAL_SERVER}` 原文，说明 OpenClash 版本不支持环境变量展开，需要先升级。
 
-前置组会自动包含当前订阅的全部 proxy provider，再通过名称筛选节点。机场更新后即使 `Provider_*` ID 发生变化，也不需要修改覆写模块；前置组是 fallback，节点改名或失效后会自动选下一个可用节点。
+链路只有一条：`客户端 → 🇸🇬 SG 中自动选出的新加坡节点 → 住宅 SOCKS5 → Claude/OpenAI`。覆写模块把上游 `🧠 AI`、`🤖 ChatGPT` 的成员改成只有 `链式代理-新加坡住宅`，所有海外 AI 都走住宅链，不通时也不会落到普通机场节点。
 
-Claude/OpenAI 的故障切换分三层：
-
-1. `🤖 Claude 住宅链` / `🤖 OpenAI 住宅链` 每 180 秒经整条住宅链请求 `api.anthropic.com` / `api.openai.com`。
-2. 当前住宅链不通时，自动从 `住宅链-经新加坡` 切到 `住宅链-经亚洲备用`。两条链出口是同一个住宅 IP，只是前置线路不同。
-3. 每条链的前置组本身是 fallback，节点健康检查失败或真实连接连续失败 2 次就换下一个节点。
-
-两条住宅链都不通时，AI 组仍停在住宅链上，不会落到普通机场节点。
-
-未启用覆写模块时，两个 AI 组只剩 `REJECT`：Claude/OpenAI 会直接连不上，绝不会改走普通节点或直连。`新加坡住宅优先` 此时回落到普通 `🇸🇬 SG`。
+未启用覆写模块时，`🧠 AI`、`🤖 ChatGPT` 保持上游原样，按你在面板里选的普通节点走；`新加坡住宅优先` 跟随 `🧠 AI`，不通时回落普通 `🇸🇬 SG`。
 
 覆写模块用 `+rules` 把自己的规则插到全部规则最前面，并自带 `claude`、`openai` 两个规则集。排在 Claude/OpenAI 规则前面的只有 Tailscale 放行和 REJECT 规则，第三方直连 / 代理列表以后怎么更新都抢不走这些流量。
 
@@ -87,7 +79,7 @@ Claude/OpenAI 的故障切换分三层：
 
 覆写模板当前固定执行以下策略：
 
-- **DNS 防泄露**：默认 `nameserver` 只用经 `♻️ 自动选择` 代理的 Cloudflare / Google DoH，国内 DNS 看不到国外域名；Claude、OpenAI 域名分别经 `🤖 Claude 住宅链`、`🤖 OpenAI 住宅链` 查询；只有 `geosite:cn,private`、机场节点域名（`proxy-server-nameserver`）和直连流量（`direct-nameserver`）使用国内 DoH。所有 DoH 都写成 IP，不依赖明文 DNS 引导。
+- **DNS 防泄露**：默认 `nameserver` 只用经 `♻️ 自动选择` 代理的 Cloudflare / Google DoH，国内 DNS 看不到国外域名；Claude、OpenAI 域名经 `🧠 AI`（住宅链）查询；只有 `geosite:cn,private`、机场节点域名（`proxy-server-nameserver`）和直连流量（`direct-nameserver`）使用国内 DoH。所有 DoH 都写成 IP，不依赖明文 DNS 引导。
 - 不追加 WAN DNS，也不追加 OpenClash 默认业务 DNS；拒绝 DoT(853)，客户端只能用路由器 DNS。
 - 开启 sniffer：客户端绕过路由器 DNS 时，仍能从 TLS/HTTP 握手识别出 Claude/OpenAI 域名并命中住宅链。
 - 关闭 IPv6 和 AAAA 解析，避免住宅出口只有 IPv4 时从 IPv6 旁路。
@@ -165,16 +157,11 @@ custom_proxy_group= MySite`select`[]🇭🇰 HK`[]🇹🇼 TW`[]🇯🇵 JP`[]�
 
 ## 当前已内置的自定义规则
 
-`🤖 Claude 住宅链`（只走住宅链）：
+`🧠 AI`（覆写模块把这些规则插到最前面，只走住宅链）：
 
 ```text
 rules/claude.yaml：Claude / Anthropic 精确域名、监控组件与官方网段
 GEOSITE,anthropic
-```
-
-`🤖 OpenAI 住宅链`（只走住宅链）：
-
-```text
 rules/openai.yaml：OpenAI / ChatGPT / Sora 核心域名、静态资源与 CDN
 GEOSITE,openai
 ```

@@ -6,14 +6,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from scripts.build import LOWER_MARKER, insert_after_nth_marker  # noqa: E402
+from scripts.build import (  # noqa: E402
+    LOWER_MARKER,
+    drop_overridden_groups,
+    insert_after_nth_marker,
+)
 
 
-CLAUDE_POLICY = "🤖 Claude 住宅链"
-OPENAI_POLICY = "🤖 OpenAI 住宅链"
+AI_POLICY = "🧠 AI"
+CHATGPT_POLICY = "🤖 ChatGPT"
 SINGAPORE_POLICY = "新加坡住宅优先"
-CHAIN_PROXIES = ["住宅链-经新加坡", "住宅链-经亚洲备用"]
-FRONT_GROUPS = ["前置-新加坡", "前置-亚洲备用"]
+CHAIN_PROXY = "链式代理-新加坡住宅"
+FRONT_GROUP = "🇸🇬 SG"
 WEBRTC_PROTECTED_CLIENTS = [
     "192.168.198.218/32",
     "192.168.198.216/32",
@@ -27,10 +31,10 @@ TAILSCALE_RULES = [
     "AND,((NETWORK,UDP),(DOMAIN-SUFFIX,tailscale.io)),DIRECT",
 ]
 AI_RULES = [
-    f"RULE-SET,claude,{CLAUDE_POLICY}",
-    f"GEOSITE,anthropic,{CLAUDE_POLICY}",
-    f"RULE-SET,openai,{OPENAI_POLICY}",
-    f"GEOSITE,openai,{OPENAI_POLICY}",
+    f"RULE-SET,claude,{AI_POLICY}",
+    f"GEOSITE,anthropic,{AI_POLICY}",
+    f"RULE-SET,openai,{AI_POLICY}",
+    f"GEOSITE,openai,{AI_POLICY}",
 ]
 DOMESTIC_DOH = ["https://223.5.5.5/dns-query", "https://1.12.12.12/dns-query"]
 RESIDENTIAL_ENV = [
@@ -74,64 +78,54 @@ def read_general_settings(module: str) -> dict[str, str]:
 
 
 class ChainConfigTests(unittest.TestCase):
-    def test_generated_template_routes_singapore_and_ai_before_upstream_rules(self) -> None:
-        upstream = "\n".join(
-            [
-                "[custom]",
-                LOWER_MARKER,
-                "ruleset=访问新加坡,https://upstream.invalid/singapore.yaml",
-                "ruleset=🤖 ChatGPT,[]GEOSITE,openai",
-                "ruleset=🧠 AI,[]GEOSITE,category-ai-!cn",
-                LOWER_MARKER,
-                "custom_proxy_group=访问新加坡`select`[]🇸🇬 SG",
-            ]
-        )
+    def test_generated_template_keeps_upstream_ai_groups(self) -> None:
+        upstream = (ROOT / "upstream" / "metafenliu.ini").read_text(encoding="utf-8")
         custom_rules = (ROOT / "custom" / "rules.ini").read_text(encoding="utf-8").strip()
         custom_groups = (ROOT / "custom" / "groups.ini").read_text(encoding="utf-8").strip()
 
-        generated = insert_after_nth_marker(upstream, LOWER_MARKER, 1, custom_rules)
+        # Claude / OpenAI 只用上游自带的 🧠 AI、🤖 ChatGPT，模板里不再自建 AI 组。
+        for name in [AI_POLICY, CHATGPT_POLICY]:
+            self.assertIn(f"custom_proxy_group={name}`select`", upstream)
+            self.assertNotIn(f"custom_proxy_group={name}`", custom_groups)
+        self.assertIn(f"ruleset={CHATGPT_POLICY},[]GEOSITE,openai", upstream)
+        self.assertIn(f"ruleset={AI_POLICY},[]GEOSITE,category-ai-!cn", upstream)
+        for removed in ["🤖 Claude 住宅链", "🤖 OpenAI 住宅链"]:
+            self.assertNotIn(removed, custom_rules + custom_groups)
+
+        generated = drop_overridden_groups(upstream, custom_groups)
+        generated = insert_after_nth_marker(generated, LOWER_MARKER, 1, custom_rules)
         generated = insert_after_nth_marker(generated, LOWER_MARKER, 2, custom_groups)
 
-        expected_rules = [
-            f"ruleset={CLAUDE_POLICY},clash-classic:https://raw.githubusercontent.com/Bloomberg-zhong/openclash-rules/main/rules/claude.yaml,86400",
-            f"ruleset={CLAUDE_POLICY},[]GEOSITE,anthropic",
-            f"ruleset={OPENAI_POLICY},clash-classic:https://raw.githubusercontent.com/Bloomberg-zhong/openclash-rules/main/rules/openai.yaml,86400",
-            f"ruleset={OPENAI_POLICY},[]GEOSITE,openai",
+        self.assertIn(
             f"ruleset={SINGAPORE_POLICY},clash-domain:https://raw.githubusercontent.com/Bloomberg-zhong/openclash-rules/main/rules/singapore.yaml,86400",
-        ]
-        for rule in expected_rules:
-            self.assertIn(rule, generated)
-
-        # 其他海外 AI 不再进入住宅链，交给上游 🧠 AI 组。
-        self.assertNotIn(",[]GEOSITE,category-ai-!cn", custom_rules)
-        self.assertNotIn("住宅链式出口", custom_rules + custom_groups)
-
-        for group in [
-            f"custom_proxy_group={CLAUDE_POLICY}`fallback`[]REJECT`https://api.anthropic.com`180",
-            f"custom_proxy_group={OPENAI_POLICY}`fallback`[]REJECT`https://api.openai.com`180",
-            f"custom_proxy_group={SINGAPORE_POLICY}`fallback`[]{CLAUDE_POLICY}`[]🇸🇬 SG`",
-        ]:
-            self.assertIn(group, generated)
-
-        self.assertLess(
-            generated.index(f"ruleset={OPENAI_POLICY},[]GEOSITE,openai"),
-            generated.index("ruleset=🤖 ChatGPT,[]GEOSITE,openai"),
+            generated,
         )
+        self.assertIn(
+            f"custom_proxy_group={SINGAPORE_POLICY}`fallback`[]{AI_POLICY}`[]🇸🇬 SG`",
+            generated,
+        )
+        for name in [AI_POLICY, CHATGPT_POLICY]:
+            self.assertEqual(generated.count(f"custom_proxy_group={name}`"), 1)
 
-    def test_ai_groups_fail_closed_without_overwrite_module(self) -> None:
-        custom_groups = (ROOT / "custom" / "groups.ini").read_text(encoding="utf-8")
-        for policy in [CLAUDE_POLICY, OPENAI_POLICY]:
-            lines = [
-                line
-                for line in custom_groups.splitlines()
-                if line.startswith(f"custom_proxy_group={policy}`")
-            ]
-            self.assertEqual(len(lines), 1, f"{policy} must be defined once")
-            members = [
-                part[2:] for part in lines[0].split("`")[2:] if part.startswith("[]")
-            ]
-            # 覆写未生效时只能拒绝，不能走普通节点或直连。
-            self.assertEqual(members, ["REJECT"], f"{policy} leaks without overwrite")
+    def test_custom_cloudflare_group_replaces_upstream_and_prefers_singapore(self) -> None:
+        upstream = (ROOT / "upstream" / "metafenliu.ini").read_text(encoding="utf-8")
+        custom_rules = (ROOT / "custom" / "rules.ini").read_text(encoding="utf-8").strip()
+        custom_groups = (ROOT / "custom" / "groups.ini").read_text(encoding="utf-8").strip()
+
+        generated = drop_overridden_groups(upstream, custom_groups)
+        generated = insert_after_nth_marker(generated, LOWER_MARKER, 1, custom_rules)
+        generated = insert_after_nth_marker(generated, LOWER_MARKER, 2, custom_groups)
+
+        cloudflare = [
+            line
+            for line in generated.splitlines()
+            if line.startswith("custom_proxy_group=☁️ cloudflare`")
+        ]
+        self.assertEqual(len(cloudflare), 1, "☁️ cloudflare must be defined once")
+        self.assertTrue(cloudflare[0].startswith("custom_proxy_group=☁️ cloudflare`select`[]🇸🇬 SG`"))
+
+        # 其他上游组不受影响。
+        self.assertIn("custom_proxy_group=🔎 Google`select`[]🇭🇰 HK`", generated)
 
     def test_openai_rules_list_core_domains(self) -> None:
         rules = (ROOT / "rules" / "openai.yaml").read_text(encoding="utf-8")
@@ -208,22 +202,15 @@ class ChainConfigTests(unittest.TestCase):
         self.assertIn("IP-ASN,399358,no-resolve", rules)
 
     def test_overwrite_module_adds_udp_chain_without_real_credentials(self) -> None:
-        module_path = ROOT / "openclash" / "sg-residential-chain.conf"
-        self.assertTrue(module_path.exists(), "OpenClash overwrite module is missing")
-        module = module_path.read_text(encoding="utf-8")
+        module = read_module()
 
         for required in [
             "[YAML]",
             "proxies+:",
             "type: socks5",
             "udp: true",
-            "proxy-groups+:",
             "proxy-groups*:",
-            "name: '/^🤖 (Claude|OpenAI) 住宅链$/'",
-            "include-all-providers: true",
-            "type: fallback",
-            "max-failed-times: 2",
-            "filter: '(?i)(🇸🇬|新加坡|\\bSG\\b|singapore)'",
+            "name: '/^(🧠 AI|🤖 ChatGPT)$/'",
             "#!ENV = " + ";".join(RESIDENTIAL_ENV),
         ]:
             self.assertIn(required, module)
@@ -231,16 +218,33 @@ class ChainConfigTests(unittest.TestCase):
         # 真实凭据只填在路由器的模块环境变量里，仓库只保留变量引用。
         self.assertNotIn("__RESIDENTIAL_", module)
 
-        front_group_block = module.split("proxy-groups+:", 1)[1].split(
-            "proxy-groups*:", 1
-        )[0]
-        self.assertNotRegex(front_group_block, r"Provider_[A-Z0-9]+")
-        self.assertNotIn("\n    use:", front_group_block)
-        self.assertNotIn("type: select", front_group_block)
-        for front in FRONT_GROUPS:
-            self.assertIn(f"- name: '{front}'", front_group_block)
-        # 前置组没有节点时 mihomo 默认回落到直连，路由器会直接去连住宅 SOCKS5。
-        self.assertEqual(front_group_block.count("empty-fallback: REJECT"), len(FRONT_GROUPS))
+        # 前置直接用模板里的 🇸🇬 SG，模块不再自建前置组。
+        self.assertNotIn("proxy-groups+:", module)
+        upstream = (ROOT / "upstream" / "metafenliu.ini").read_text(encoding="utf-8")
+        self.assertIn(f"custom_proxy_group={FRONT_GROUP}`url-test`", upstream)
+
+        proxy_block = module.split("proxies+:", 1)[1].split("proxy-groups*:", 1)[0]
+        chain_entries = proxy_block.split("  - name: ")[1:]
+        self.assertEqual(
+            [entry.splitlines()[0].strip("'") for entry in chain_entries], [CHAIN_PROXY]
+        )
+        entry = chain_entries[0]
+        self.assertIn(f"dialer-proxy: '{FRONT_GROUP}'", entry)
+        expected_credentials = {
+            "server": "'${RESIDENTIAL_SERVER}'",
+            "port": "${RESIDENTIAL_PORT}",
+            "username": "'${RESIDENTIAL_USERNAME}'",
+            "password": "'${RESIDENTIAL_PASSWORD}'",
+        }
+        actual_credentials = {}
+        for raw_line in entry.splitlines():
+            line = raw_line.strip()
+            if ":" not in line:
+                continue
+            key, value = line.split(":", 1)
+            if key in expected_credentials:
+                actual_credentials[key] = value.strip()
+        self.assertEqual(actual_credentials, expected_credentials)
 
         # AI 组覆写后只能包含住宅链，不能出现普通节点或 DIRECT。
         ai_set_block = module.split("proxy-groups*:", 1)[1]
@@ -249,31 +253,7 @@ class ChainConfigTests(unittest.TestCase):
             for line in ai_set_block.split("    proxies:", 1)[1].splitlines()[1:]
             if line.startswith("      - ")
         ]
-        self.assertEqual(members, CHAIN_PROXIES)
-
-        proxy_block = module.split("proxies+:", 1)[1].split("proxy-groups+:", 1)[0]
-        expected_credentials = {
-            "server": "'${RESIDENTIAL_SERVER}'",
-            "port": "${RESIDENTIAL_PORT}",
-            "username": "'${RESIDENTIAL_USERNAME}'",
-            "password": "'${RESIDENTIAL_PASSWORD}'",
-        }
-        chain_entries = proxy_block.split("  - name: ")[1:]
-        self.assertEqual(
-            [entry.splitlines()[0].strip("'") for entry in chain_entries],
-            CHAIN_PROXIES,
-        )
-        for entry, front in zip(chain_entries, FRONT_GROUPS):
-            self.assertIn(f"dialer-proxy: '{front}'", entry)
-            actual_credentials = {}
-            for raw_line in entry.splitlines():
-                line = raw_line.strip()
-                if ":" not in line:
-                    continue
-                key, value = line.split(":", 1)
-                if key in expected_credentials:
-                    actual_credentials[key] = value.strip()
-            self.assertEqual(actual_credentials, expected_credentials)
+        self.assertEqual(members, [CHAIN_PROXY])
 
     def test_overwrite_module_prevents_dns_leaks(self) -> None:
         module = read_module()
@@ -326,15 +306,10 @@ class ChainConfigTests(unittest.TestCase):
         policy_block = module.split("  nameserver-policy!:", 1)[1].split(
             "  proxy-server-nameserver!:", 1
         )[0]
-        for selector, policy in [
-            ("'rule-set:claude':", CLAUDE_POLICY),
-            ("'geosite:anthropic':", CLAUDE_POLICY),
-            ("'rule-set:openai':", OPENAI_POLICY),
-            ("'geosite:openai':", OPENAI_POLICY),
-        ]:
+        for selector in ["'rule-set:claude,openai':", "'geosite:anthropic,openai':"]:
             entry = policy_block.split(selector, 1)[1].split("    '", 1)[0]
-            self.assertIn(f"https://1.1.1.1/dns-query#{policy}", entry)
-            self.assertIn(f"https://8.8.8.8/dns-query#{policy}", entry)
+            self.assertIn(f"https://1.1.1.1/dns-query#{AI_POLICY}", entry)
+            self.assertIn(f"https://8.8.8.8/dns-query#{AI_POLICY}", entry)
 
         cn_entry = policy_block.split("'geosite:cn,private':", 1)[1]
         for doh in DOMESTIC_DOH:

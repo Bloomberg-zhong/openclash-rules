@@ -12,6 +12,7 @@ OUTPUT_FILE = ROOT / "metafenliu.ini"
 UPSTREAM_FILE = UPSTREAM_DIR / "metafenliu.ini"
 
 LOWER_MARKER = ";------------请在下方区域内添加应用---------------"
+GROUP_PREFIX = "custom_proxy_group="
 
 
 def read_text(path: Path) -> str:
@@ -47,6 +48,25 @@ def insert_after_nth_marker(text: str, marker: str, nth: int, block: str) -> str
     return text[:insert_at] + injected + text[insert_at:]
 
 
+def group_name(line: str) -> str:
+    return line[len(GROUP_PREFIX):].split("`", 1)[0].strip()
+
+
+def drop_overridden_groups(upstream: str, custom_groups: str) -> str:
+    """custom/groups.ini 里与上游同名的策略组替换上游定义，避免重名。"""
+    names = {
+        group_name(line)
+        for line in custom_groups.splitlines()
+        if line.startswith(GROUP_PREFIX)
+    }
+    kept = [
+        line
+        for line in upstream.splitlines(keepends=True)
+        if not (line.startswith(GROUP_PREFIX) and group_name(line) in names)
+    ]
+    return "".join(kept)
+
+
 def main() -> None:
     UPSTREAM_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -56,7 +76,8 @@ def main() -> None:
     custom_rules = read_text(CUSTOM_DIR / "rules.ini")
     custom_groups = read_text(CUSTOM_DIR / "groups.ini")
 
-    result = insert_after_nth_marker(upstream, LOWER_MARKER, 1, custom_rules)
+    result = drop_overridden_groups(upstream, custom_groups)
+    result = insert_after_nth_marker(result, LOWER_MARKER, 1, custom_rules)
     result = insert_after_nth_marker(result, LOWER_MARKER, 2, custom_groups)
 
     OUTPUT_FILE.write_text(result, encoding="utf-8")
