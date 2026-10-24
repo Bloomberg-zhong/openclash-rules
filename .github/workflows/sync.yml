@@ -4,9 +4,24 @@ on:
   workflow_dispatch:
   schedule:
     - cron: "20 20 * * *"
+  # 自定义规则、覆写模块或构建脚本合并到 main 后立即重新生成模板。
+  # 机器人提交只改 metafenliu.ini 和 upstream/，不会再次触发。
+  push:
+    branches:
+      - main
+    paths:
+      - "custom/**"
+      - "rules/**"
+      - "openclash/**"
+      - "scripts/**"
 
 permissions:
   contents: write
+
+# 定时任务和 push 同时触发时排队执行，避免两次 git push 互相冲突。
+concurrency:
+  group: sync-openclash-template
+  cancel-in-progress: false
 
 jobs:
   sync:
